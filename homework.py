@@ -8,7 +8,9 @@ import requests
 from dotenv import load_dotenv
 from telebot import TeleBot
 
-from exceptions import ApiResponseError
+from exceptions import (ApiResponseError, ApiResponseHomeworkVerdictError,
+                        ApiResponseKeyError, ApiResponseStatusError,
+                        TokenError)
 
 load_dotenv()
 
@@ -31,75 +33,65 @@ HOMEWORK_VERDICTS = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-was_api_call_successful = True
-was_response_check_successful = True
-
-
-# Глобальная конфигурация логирования.
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    level=logging.DEBUG,
-    filename='program.log'
-)
-
-# Создаем и настраиваем логгер.
-logger = logging.getLogger(__name__)
-handler = logging.StreamHandler(sys.stdout)
-logger.addHandler(handler)
-
 
 def check_tokens():
     """Функция проверяет наличие переменных окружения."""
+    tg_token_error = False
+    tg_chat_id_error = False
+    practicum_token_error = False
+
     if (
         not TELEGRAM_TOKEN
         or type(TELEGRAM_TOKEN) is not str
     ):
+        tg_token_error = True
         # Логируем отсутствие токена телеграм.
         logging.critical('Отсутствует токен Телеграм.')
-        sys.exit()
     if (
         not TELEGRAM_CHAT_ID
         or type(TELEGRAM_CHAT_ID) is not int
     ):
+        tg_chat_id_error = True
         # Логируем отсутствие ID чата.
         logging.critical('Отсутствует ID чата телеграм.')
     if (
         not PRACTICUM_TOKEN
         or type(PRACTICUM_TOKEN) is not str
     ):
-        # Логируем отсутствие токена API Практикум Домашка и оповещаем.
+        practicum_token_error = True
+        # Логируем отсутствие токена API Практикум Домашка.
         message = 'Отсутствует токен API Практикум Домашка.'
         logging.critical(message)
-        send_log_message(message)
-        sys.exit()
+
+    if (
+        not tg_token_error
+        and not tg_chat_id_error
+        and practicum_token_error
+    ):
+        bot = TeleBot(token=TELEGRAM_TOKEN)
+        send_message(bot, message)
+
+    elif tg_token_error or practicum_token_error:
+        raise TokenError  # Сообщение в кастомном исключении.
 
 
 def send_message(bot, message):
-    """Функция отправляет сообщение в чат в телеграме."""
+    """Функция отправляет сообщение в чат в Телеграме."""
     try:
         bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=message
         )
-        # Логируем удачную отправку сообщения.
         logging.debug('Успешная отправка сообщения в чат.')
     except Exception as error:
         # Логируем сбой при отправке сообщения.
         logging.error(error, exc_info=True)
 
 
-def send_log_message(message):
-    """Функция отправляет сообщения логирования в чат."""
-    bot = TeleBot(token=TELEGRAM_TOKEN)
-    send_message(bot, message)
-
-
 def get_api_answer(timestamp):
     """Функция запрашивает данные с API Практикум Домашка."""
     headers = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
     payload = {'from_date': timestamp}
-    # Получаем доступ к переменной хранящей историю предыдущего вызова.
-    global was_api_call_successful
     try:
         homework_statuses = requests.get(
             ENDPOINT,
@@ -107,56 +99,28 @@ def get_api_answer(timestamp):
             params=payload
         )
     except requests.RequestException as error:
-        # Логируем сбои при запросе к эндпоинту.
-        logging.exception(error, exc_info=True)
-        # Если ошибка впервые, то сообщение в чат.
-        if was_api_call_successful:
-            send_log_message('Сбои при запросе к эндпойнту.')
-            was_api_call_successful = False
+        raise ApiResponseError(error)
 
     if homework_statuses.status_code != HTTPStatus.OK:
-        message = 'HTTPStatus не OK'
-        logging.error(message)
-        # Если ошибка впервые, то сообщение в чат.
-        if was_api_call_successful:
-            send_log_message(message)
-            was_api_call_successful = False
-        raise ApiResponseError
+        raise ApiResponseStatusError  # Сообщение в кастомном исключении.
 
     return homework_statuses.json()
 
 
 def check_response(response):
     """Функция проверяет содержимое ответа API Практикум Домашка."""
-    # Обеспечиваем доступ к переменной успеха предыдущего вызова.
-    global was_response_check_successful
-    message = 'Ответ API не соответствует требуемому формату.'
-    # Проверяем тип полученных данных, ключи 'homeworks' и 'current_date'.
+    # Проверяем тип полученных данных и ключ 'homeworks'.
     if not isinstance(response, dict):
-        logging.error(message)
-        if was_response_check_successful:
-            send_log_message(message)
-            was_response_check_successful = False
-        raise TypeError
+        raise TypeError('От API Практикум Домашка получен не словарь')
 
-    if (
-        'homeworks' not in response
-        or 'current_date' not in response
-    ):
-        # Логируем отсутствие ожидаемых ключей в ответе API.
-        logging.error(message)
-        if was_response_check_successful:
-            send_log_message(message)
-            was_response_check_successful = False
-        raise ApiResponseError
-    if not isinstance(response['homeworks'], list):
-        logging.error(message)
-        if was_response_check_successful:
-            send_log_message(message)
-            was_response_check_successful = False
-        raise TypeError
+    elif 'homeworks' not in response:
+        raise ApiResponseKeyError  # Сообщение в кастомном исключении.
 
-    return True
+    elif not isinstance(response['homeworks'], list):
+        raise TypeError('Под ключом homeworks не список')
+
+    else:
+        return True
 
 
 def parse_status(homework):
@@ -166,22 +130,14 @@ def parse_status(homework):
     """
     # Проверяем наличие ключа homework_name.
     if 'homework_name' not in homework:
-        message = ('Формат информации о домашней работе не соответствует '
-                   'ожидаемому.')
-        logging.error(message)
-        send_log_message(message)
-        raise ApiResponseError
+        raise ApiResponseKeyError  # Сообщение в кастомном исключении.
 
-    if homework['status'] in HOMEWORK_VERDICTS:
-        homework_name = homework['homework_name']
-        verdict = HOMEWORK_VERDICTS[homework['status']]
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    else:
-        # Логируем неожиданный статус домашней работы в ответе API.
-        message = 'Неожиданный статус домашней работы в ответе API'
-        logging.error(message)
-        send_log_message(message)
-        raise ApiResponseError
+    if homework['status'] not in HOMEWORK_VERDICTS:
+        raise ApiResponseHomeworkVerdictError  # Сообщ-е в кастомном исключ-и.
+
+    homework_name = homework['homework_name']
+    verdict = HOMEWORK_VERDICTS[homework['status']]
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
@@ -191,30 +147,46 @@ def main():
     # Создаем объект класса бота.
     bot = TeleBot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
+    latest_message = ''
 
     while True:
         try:
             response = get_api_answer(timestamp)
-        except Exception as error:
-            message = f'Сбой при вызове функции get_api_answer: {error}'
-            logging.error(message)
-
-        if response:
             if check_response(response):
                 # Если в ответе пришло сообщение и оно прошло проверку...
-                if len(response['homeworks']) > 0:
+                if response['homeworks']:
                     latest_homework = response['homeworks'][0]
                     message = parse_status(latest_homework)
                     # Отправляем сообщение в чат.
-                    send_message(bot, message)
+                    if message != latest_message:
+                        send_message(bot, message)
+                        latest_message = message
                 else:
                     # Логируем отсутствие в ответе новых статусов.
                     logging.debug('В ответе нет новых статусов')
                 # Сохраняем время последнего запроса.
                 timestamp = response['current_date']
 
-        time.sleep(RETRY_PERIOD)
+        except Exception as error:
+            message = f'Сбой при вызове функции: {error}'
+            logging.error(message)
+            if latest_message != message:
+                send_message(message)
+                latest_message = message
+
+        finally:
+            time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
+    # Глобальная конфигурация логирования.
+    logging.basicConfig(
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        level=logging.DEBUG,
+        filename='program.log'
+    )
+    # Создаем и настраиваем логгер.
+    logger = logging.getLogger(__name__)
+    handler = logging.StreamHandler(sys.stdout)
+    logger.addHandler(handler)
     main()
