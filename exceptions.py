@@ -3,7 +3,7 @@ class TokenError(NameError):
 
     def __str__(self):
         """Возвращаем сообщение об ошибке."""
-        return 'Ошибка в токене Телеграм или API Практикум Домашка.'
+        return 'Ошибка в токене Телеграм или API Практикум Домашка'
 
 
 class ApiResponseError(Exception):
@@ -11,7 +11,7 @@ class ApiResponseError(Exception):
 
     def __str__(self):
         """Возвращаем сообщение об ошибке."""
-        return 'Ошибка в ответе API Практикум Домашка.'
+        return 'Ошибка в ответе API Практикум Домашка'
 
 
 class ApiResponseStatusError(ApiResponseError):
@@ -29,7 +29,7 @@ class ApiResponseKeyError(KeyError):
         """Возвращаем сообщение об ошибке."""
         return (
             'В ответе API Практикум Домашка нет ключа homeworks'
-            ' или homework_name.'
+            ' или homework_name'
         )
 
 

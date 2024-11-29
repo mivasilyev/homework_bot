@@ -36,43 +36,31 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Функция проверяет наличие переменных окружения."""
-    tg_token_error = False
-    tg_chat_id_error = False
-    practicum_token_error = False
+    env_dict = {
+        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
+        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
+        'PRACTICUM_TOKEN': PRACTICUM_TOKEN
+    }
+    for name, token in env_dict.items():
+        if not token:
+            message = f'Отсутствует {name}'
+            logging.critical(message)
+            env_dict[name] = False
+        else:
+            env_dict[name] = True
 
     if (
-        not TELEGRAM_TOKEN
-        or type(TELEGRAM_TOKEN) is not str
-    ):
-        tg_token_error = True
-        # Логируем отсутствие токена телеграм.
-        logging.critical('Отсутствует токен Телеграм.')
-    if (
-        not TELEGRAM_CHAT_ID
-        or type(TELEGRAM_CHAT_ID) is not int
-    ):
-        tg_chat_id_error = True
-        # Логируем отсутствие ID чата.
-        logging.critical('Отсутствует ID чата телеграм.')
-    if (
-        not PRACTICUM_TOKEN
-        or type(PRACTICUM_TOKEN) is not str
-    ):
-        practicum_token_error = True
-        # Логируем отсутствие токена API Практикум Домашка.
-        message = 'Отсутствует токен API Практикум Домашка.'
-        logging.critical(message)
-
-    if (
-        not tg_token_error
-        and not tg_chat_id_error
-        and practicum_token_error
+        env_dict['TELEGRAM_TOKEN']
+        and env_dict['TELEGRAM_CHAT_ID']
+        and not env_dict['PRACTICUM_TOKEN']
     ):
         bot = TeleBot(token=TELEGRAM_TOKEN)
         send_message(bot, message)
-
-    elif tg_token_error or practicum_token_error:
-        raise TokenError  # Сообщение в кастомном исключении.
+    elif (
+        not env_dict['TELEGRAM_TOKEN']
+        or not env_dict['PRACTICUM_TOKEN']
+    ):
+        raise TokenError(message)
 
 
 def send_message(bot, message):
@@ -84,7 +72,6 @@ def send_message(bot, message):
         )
         logging.debug('Успешная отправка сообщения в чат.')
     except Exception as error:
-        # Логируем сбой при отправке сообщения.
         logging.error(error, exc_info=True)
 
 
@@ -102,7 +89,7 @@ def get_api_answer(timestamp):
         raise ApiResponseError(error)
 
     if homework_statuses.status_code != HTTPStatus.OK:
-        raise ApiResponseStatusError  # Сообщение в кастомном исключении.
+        raise ApiResponseStatusError('HTTPStatus ответа API не OK')
 
     return homework_statuses.json()
 
@@ -111,16 +98,21 @@ def check_response(response):
     """Функция проверяет содержимое ответа API Практикум Домашка."""
     # Проверяем тип полученных данных и ключ 'homeworks'.
     if not isinstance(response, dict):
-        raise TypeError('От API Практикум Домашка получен не словарь')
 
-    elif 'homeworks' not in response:
-        raise ApiResponseKeyError  # Сообщение в кастомном исключении.
+        raise TypeError(
+            f'От API Практикум Домашка получен не словарь, a {type(response)}'
+        )
 
-    elif not isinstance(response['homeworks'], list):
-        raise TypeError('Под ключом homeworks не список')
-
-    else:
-        return True
+    if 'homeworks' not in response:
+        raise ApiResponseKeyError(
+            'В ответе API Практикум Домашка нет ключа homeworks'
+        )
+    resp_homeworks = response['homeworks']
+    if not isinstance(resp_homeworks, list):
+        raise TypeError(
+            f'Под ключом homeworks не список, a {type(resp_homeworks)}'
+        )
+    return True
 
 
 def parse_status(homework):
@@ -129,11 +121,18 @@ def parse_status(homework):
     Возвращает подготовленную для отправки в Telegram строку.
     """
     # Проверяем наличие ключа homework_name.
-    if 'homework_name' not in homework:
-        raise ApiResponseKeyError  # Сообщение в кастомном исключении.
+    if (
+        'homework_name' not in homework
+        or 'status' not in homework
+    ):
+        raise ApiResponseKeyError(
+            'В ответе API Практикум Домашка нет ключа homework_name'
+        )
 
     if homework['status'] not in HOMEWORK_VERDICTS:
-        raise ApiResponseHomeworkVerdictError  # Сообщ-е в кастомном исключ-и.
+        raise ApiResponseHomeworkVerdictError(
+            'Неожиданный статус домашней работы в ответе API'
+        )
 
     homework_name = homework['homework_name']
     verdict = HOMEWORK_VERDICTS[homework['status']]
