@@ -36,6 +36,7 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Функция проверяет наличие переменных окружения."""
+    error_list = []
     env_dict = {
         'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
         'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
@@ -43,24 +44,8 @@ def check_tokens():
     }
     for name, token in env_dict.items():
         if not token:
-            message = f'Отсутствует {name}'
-            logging.critical(message)
-            env_dict[name] = False
-        else:
-            env_dict[name] = True
-
-    if (
-        env_dict['TELEGRAM_TOKEN']
-        and env_dict['TELEGRAM_CHAT_ID']
-        and not env_dict['PRACTICUM_TOKEN']
-    ):
-        bot = TeleBot(token=TELEGRAM_TOKEN)
-        send_message(bot, message)
-    elif (
-        not env_dict['TELEGRAM_TOKEN']
-        or not env_dict['PRACTICUM_TOKEN']
-    ):
-        raise TokenError(message)
+            error_list.append(name)
+    return error_list
 
 
 def send_message(bot, message):
@@ -141,8 +126,14 @@ def parse_status(homework):
 
 def main():
     """Основная логика работы бота."""
-    # Проверяем наличие токенов.
-    check_tokens()
+    # Проверяем наличие токенов. Если хоть одного нет, выходим.
+    env_errors = check_tokens()
+    if env_errors:
+        message = f'Отсутствует {", ".join(env_errors)}.'
+        logging.critical(message)
+        if 'TOKEN' in message:
+            raise TokenError(message)
+
     # Создаем объект класса бота.
     bot = TeleBot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
