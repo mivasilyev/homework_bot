@@ -8,9 +8,10 @@ import requests
 from dotenv import load_dotenv
 from telebot import TeleBot
 
-from exceptions import (ApiResponseError, ApiResponseHomeworkVerdictError,
-                        ApiResponseKeyError, ApiResponseStatusError,
-                        TokenError)
+from exceptions import (
+    ApiResponseError, ApiResponseHomeworkVerdictError, ApiResponseKeyError,
+    ApiResponseStatusError, TokenError
+)
 
 load_dotenv()
 
